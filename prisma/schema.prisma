@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+// 1. สร้าง Model User (รองรับหลายผู้ใช้งาน)
+model User {
+  id           Int           @id @default(autoincrement())
+  username     String        @unique
+  password     String        // ควร hash ก่อนเก็บ
+  name         String?
+  transactions Transaction[] // Relation: 1 User มีหลาย Transaction
+  categories   Category[]    // Relation: 1 User มีหลาย Category (Custom เองได้)
+  createdAt    DateTime      @default(now())
+}
+
+// 2. เปลี่ยน Category จาก Enum เป็น Model (เพื่อให้ Dynamic)
+model Category {
+  id           Int             @id @default(autoincrement())
+  name         String          // เช่น "อาหาร", "เดินทาง"
+  icon         String?         // เก็บชื่อ icon (เช่น "utensils", "car") ไว้แสดงหน้าเว็บ
+  color        String?         // เก็บโค้ดสี (เช่น "#FF5733") ไว้ทำกราฟ
+  type         TransactionType // ระบุเลยว่าเป็นหมวดของ รายรับ หรือ รายจ่าย
+  
+  userId       Int             // ผูกกับ User (User สร้างหมวดใครหมวดมัน)
+  user         User            @relation(fields: [userId], references: [id])
+  
+  transactions Transaction[]   // Relation: 1 Category ถูกใช้ในหลาย Transaction
+
+  @@unique([name, userId])     // ป้องกัน User คนเดิมสร้างชื่อหมวดซ้ำกัน
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  title       String
+  amount      Decimal         @db.Decimal(12, 2) // เพิ่ม digit หน่อยเผื่อรวยร้อยล้าน
+  type        TransactionType
+  date        DateTime        @default(now())
+  note        String?
+  
+  // เชื่อมกับ Category (แทน Enum เดิม)
+  categoryId  Int
+  category    Category        @relation(fields: [categoryId], references: [id])
+
+  // เชื่อมกับ User
+  userId      Int
+  user        User            @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // 3. ทำ Indexing เพื่อให้ Dashboard โหลดเร็ว (สำคัญมาก)
+  @@index([userId])           // ค้นหา transaction ของ user เร็วขึ้น
+  @@index([date])             // Filter ช่วงเวลาเร็วขึ้น
+  @@index([categoryId])       // Group by category เร็วขึ้น
+}
