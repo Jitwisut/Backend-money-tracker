@@ -3,7 +3,9 @@ import { prisma } from "../src/db";
 import { TransactionType } from "@prisma/client";
 import { AuthContext } from "../type/type";
 import { AuthenticationError } from "../utils/error";
-
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 export const dashboard = {
   getSummary: async ({
     user,
@@ -13,17 +15,19 @@ export const dashboard = {
     query: { startDate?: string; endDate?: string };
   }) => {
     if (!user || !user.id) throw new AuthenticationError("Unauthorized");
-
+    dayjs.extend(utc);
+    dayjs.extend(timezone);
     const userId = Number(user.id);
     const { startDate, endDate } = query;
-
+    // บังคับใช้ Timezone ไทย เพื่อให้ start/end ครอบคลุมเวลา 00:00 - 23:59 ของไทยจริงๆ
+    const start = dayjs.tz(startDate, "Asia/Bangkok").startOf("day").toDate();
+    const end = dayjs.tz(endDate, "Asia/Bangkok").endOf("day").toDate();
     // เตรียมเงื่อนไขเรื่องเวลา (ถ้ามีการส่งมา)
     const dateFilter: any = {};
     if (startDate && endDate) {
-      const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       dateFilter.date = {
-        gte: new Date(startDate),
+        gte: start,
         lte: end,
       };
     }

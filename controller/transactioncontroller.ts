@@ -4,7 +4,9 @@ import { Category, TransactionType } from "@prisma/client"; // ดึง Enum �
 import { getTransaction, CreateTransactionBody } from "../type/type";
 import { AuthContext } from "../type/type";
 import { AuthenticationError } from "../utils/error";
-
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 export const transaction = {
   create: async ({
     body,
@@ -81,10 +83,15 @@ export const transaction = {
       const where: any = {
         userId: user.id,
       };
+      dayjs.extend(utc);
+      dayjs.extend(timezone);
+      //บังคับให้ใช้ timezone ไทย
+      const start = dayjs.tz(startDate, "Asia/Bangkok").startOf("day").toDate();
+      const end = dayjs.tz(endDate, "Asia/Bangkok").endOf("day").toDate();
       if (startDate && endDate) {
         where.date = {
-          gte: new Date(startDate),
-          lte: new Date(endDate),
+          gte: start,
+          lte: end,
         };
       }
       // เช็คว่ามีค่า type ส่งมาจริงไหม ก่อนจะยัดลง where
@@ -103,7 +110,7 @@ export const transaction = {
             },
           },
         },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "desc" }, { amount: "asc" }],
       });
       return { data: transactions };
     } catch (error) {
@@ -120,6 +127,9 @@ export const transaction = {
     user: AuthContext["user"];
   }) => {
     try {
+      if (!user) {
+        throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
+      }
       const updateTx = await prisma.transaction.update({
         where: { id: Number(id), userId: user.id },
         data: body,
@@ -153,5 +163,29 @@ export const transaction = {
       set.status = 404;
       return { message: "ไม่พบรายการ หรือคุณไม่มีสิทธิ์" };
     }
+  },
+  getCategory: async ({
+    set,
+    user,
+  }: {
+    set: Context["set"];
+    user: AuthContext["user"];
+  }) => {
+    if (!user) {
+      throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
+    }
+    const category = await prisma.category.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: {
+        name: "asc",
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+    return { status: "success", data: category };
   },
 };
