@@ -60,4 +60,5 @@ export const Transactionrouter = new Elysia({
     params: t.Object({
       id: t.Number(),
     }),
-  });
+  })
+  .get("/category", transaction.getCategory);

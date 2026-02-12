@@ -32,5 +32,6 @@ export const DashboardRouter = new Elysia({ prefix: "/api/dashboard" })
     query: t.Object({
       startDate: t.Optional(t.String()),
       endDate: t.Optional(t.String()),
+      type: t.Optional(t.String()),
     }),
   });

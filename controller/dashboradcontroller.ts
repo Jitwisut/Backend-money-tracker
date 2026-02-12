@@ -12,7 +12,7 @@ export const dashboard = {
     query,
   }: {
     user: AuthContext["user"];
-    query: { startDate?: string; endDate?: string };
+    query: { startDate?: string; endDate?: string; type: string };
   }) => {
     if (!user || !user.id) throw new AuthenticationError("Unauthorized");
     dayjs.extend(utc);
@@ -52,13 +52,13 @@ export const dashboard = {
       const expense =
         totals.find((t) => t.type === "EXPENSE")?._sum.amount || 0;
       const balance = Number(income) - Number(expense);
-
+      const { type } = query;
       // 2. หายอดรวมแยกตามหมวดหมู่ (สำหรับทำ Pie Chart รายจ่าย)
       const expenseByCategory = await prisma.transaction.groupBy({
         by: ["categoryId"], // จัดกลุ่มตามชื่อหมวดหมู่
         where: {
           userId: userId,
-          type: "EXPENSE", // เอาเฉพาะรายจ่าย
+          type: (type as "INCOME" | "EXPENSE") || "EXPENSE", // เอาเฉพาะรายจ่าย
           ...dateFilter,
         },
         _sum: {
