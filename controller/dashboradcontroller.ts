@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 
-// Initialize DayJS plugins (ทำไว้ข้างนอกเพื่อความชัวร์)
+// Initialize DayJS plugins
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -21,7 +21,7 @@ export const dashboard = {
       startDate?: string;
       endDate?: string;
       type?: string;
-      categoryId?: string;
+      categoryId?: string; // รับค่ามาเป็น String (เช่น "1" หรือ "1,5,8")
     };
   }) => {
     if (!user || !user.id) throw new AuthenticationError("Unauthorized");
@@ -30,7 +30,6 @@ export const dashboard = {
     const { startDate, endDate, type, categoryId } = query;
 
     // --- ส่วนจัดการเรื่องเวลา ---
-    // ใช้ try-catch เผื่อ format วันที่ผิด
     let dateFilter: any = {};
     try {
       if (startDate && endDate) {
@@ -40,7 +39,7 @@ export const dashboard = {
           .toDate();
         const end = dayjs.tz(endDate, "Asia/Bangkok").endOf("day").toDate();
 
-        // เช็คว่าวันที่ถูกต้องไหม (Invalid Date)
+        // เช็คว่าวันที่ถูกต้องไหม
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
           dateFilter.date = {
             gte: start,
@@ -50,16 +49,15 @@ export const dashboard = {
       }
     } catch (e) {
       console.error("Date parsing error:", e);
-      // ถ้าวันที่พัง ให้ปล่อยผ่านไป (ไม่กรองวันที่) ดีกว่าแอปพัง
     }
 
-    // --- ✅ สร้างเงื่อนไขการค้นหาหลัก ---
+    // --- สร้างเงื่อนไขการค้นหาหลัก (Base Where Condition) ---
     const whereCondition: any = {
       userId: userId,
       ...dateFilter,
     };
 
-    // --- ✅ Logic กรอง Category (Safe Mode) ---
+    // --- ✅ Logic กรอง Category (รองรับทั้งเลือกหลายหมวดและหมวดเดียว) ---
     if (
       categoryId &&
       categoryId !== "ALL" &&
@@ -69,11 +67,11 @@ export const dashboard = {
       const catStr = String(categoryId);
 
       if (catStr.includes(",")) {
-        // กรณีมีหลายตัว (เช่น "1,2,3")
+        // กรณีเลือกหลายหมวด (เช่น "1,2,3")
         const ids = catStr
           .split(",")
           .map((id) => Number(id.trim()))
-          .filter((id) => !isNaN(id) && id > 0); // เอาเฉพาะตัวเลขที่ > 0
+          .filter((id) => !isNaN(id) && id > 0);
 
         if (ids.length > 0) {
           whereCondition.categoryId = { in: ids };
@@ -107,10 +105,9 @@ export const dashboard = {
       const balance = income - expense;
 
       // --- 2. หายอดรวมแยกตามหมวดหมู่ (สำหรับทำ Pie Chart) ---
-      // ต้องเพิ่มเงื่อนไข type เพื่อให้ Pie Chart แสดงถูกกราฟ (รายรับ หรือ รายจ่าย)
       const pieChartWhere = {
         ...whereCondition,
-        type: type === "INCOME" || type === "EXPENSE" ? type : "EXPENSE", // Default เป็น EXPENSE ถ้าไม่ส่งมา
+        type: type === "INCOME" || type === "EXPENSE" ? type : "EXPENSE",
       };
 
       const expenseByCategory = await prisma.transaction.groupBy({
@@ -126,8 +123,7 @@ export const dashboard = {
         },
       });
 
-      // --- 3. ดึงชื่อหมวดหมู่ ---
-      // กรองเอาเฉพาะ ID ที่ไม่เป็น null
+      // --- 3. ดึงชื่อหมวดหมู่มาใส่ ---
       const categoryIds = expenseByCategory
         .map((item) => item.categoryId)
         .filter((id): id is number => id !== null);
@@ -165,7 +161,6 @@ export const dashboard = {
       };
     } catch (error) {
       console.error("Dashboard Error:", error);
-      // ส่ง error กลับไปให้ชัดเจนขึ้น
       throw new Error("Failed to fetch dashboard data");
     }
   },

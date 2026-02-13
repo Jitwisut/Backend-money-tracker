@@ -1,12 +1,17 @@
-import { Context, Elysia, status, t } from "elysia";
+import { Context } from "elysia";
 import { prisma } from "../src/db";
-import { Category, TransactionType } from "@prisma/client"; // ดึง Enum จาก Prisma มาใช้
+import { TransactionType } from "@prisma/client";
 import { getTransaction, CreateTransactionBody } from "../type/type";
 import { AuthContext } from "../type/type";
 import { AuthenticationError } from "../utils/error";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
+
+// Initialize plugins
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 export const transaction = {
   create: async ({
     body,
@@ -18,20 +23,17 @@ export const transaction = {
     user: AuthContext["user"];
   }) => {
     const { title, amount, type, categoryName, date, note } = body;
-    // Validation เบื้องต้น
-    /*if (!title || !amount || !type || !category) {
-      set.status = 400;
-      return { message: "Error: Missing required fields" };
-    }*/
     const userId = user.id;
+
     if (!userId) {
       throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
     }
+
     try {
       const newTransaction = await prisma.transaction.create({
         data: {
           title,
-          amount, // ไม่ต้องแปลง Number() ก็ได้ เพราะ t.Numeric จัดการให้แล้ว
+          amount: Number(amount),
           type: type as TransactionType,
           date: date ? new Date(date) : new Date(),
           note,
@@ -65,9 +67,9 @@ export const transaction = {
       throw error;
     }
   },
+
   getAll: async ({
     query,
-    set,
     user,
   }: {
     query: getTransaction;
@@ -75,101 +77,137 @@ export const transaction = {
     user: AuthContext["user"];
   }) => {
     const { startDate, endDate, type, categoryId } = query;
-    try {
-      if (!user) {
-        throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
-      }
-      console.log("Fetching data for User ID:", user.id);
-      const where: any = {
-        userId: user.id,
-      };
-      dayjs.extend(utc);
-      dayjs.extend(timezone);
-      //บังคับให้ใช้ timezone ไทย
+
+    if (!user || !user.id) {
+      throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
+    }
+
+    const where: any = {
+      userId: user.id,
+    };
+
+    // Filter วันที่
+    if (startDate && endDate) {
       const start = dayjs.tz(startDate, "Asia/Bangkok").startOf("day").toDate();
       const end = dayjs.tz(endDate, "Asia/Bangkok").endOf("day").toDate();
-      if (startDate && endDate) {
-        where.date = {
-          gte: start,
-          lte: end,
-        };
-      }
-      if (categoryId && categoryId !== "ALL" && categoryId !== "undefined" && categoryId !== "") {
-        const catStr = String(categoryId);
-        if (catStr.includes(",")) {
-          // กรณีมีหลายตัว (เช่น "1,2,3")
-          const ids = catStr
-            .split(",")
-            .map((id) => Number(id.trim()))
-            .filter((id) => !isNaN(id) && id > 0);
-          if (ids.length > 0) {
-            where.categoryId = { in: ids };
-          }
-        } else {
-          // กรณีมีตัวเดียว
-          const id = Number(catStr);
-          if (!isNaN(id) && id > 0) {
-            where.categoryId = id;
-          }
+      where.date = {
+        gte: start,
+        lte: end,
+      };
+    }
+
+    // ✅ Logic CategoryId (รองรับ Multi-ID แบบ Comma-separated)
+    if (
+      categoryId &&
+      categoryId !== "ALL" &&
+      categoryId !== "undefined" &&
+      categoryId !== ""
+    ) {
+      const catStr = String(categoryId);
+      if (catStr.includes(",")) {
+        const ids = catStr
+          .split(",")
+          .map((id) => Number(id.trim()))
+          .filter((id) => !isNaN(id) && id > 0);
+        if (ids.length > 0) {
+          where.categoryId = { in: ids };
+        }
+      } else {
+        const id = Number(catStr);
+        if (!isNaN(id) && id > 0) {
+          where.categoryId = id;
         }
       }
-      // เช็คว่ามีค่า type ส่งมาจริงไหม ก่อนจะยัดลง where
-      if (
-        type &&
-        Object.values(TransactionType).includes(type as TransactionType)
-      ) {
+    }
+
+    // ✅ แก้ไขปัญหา TypeScript "ALL" Error
+    if (type && (type as string) !== "ALL") {
+      if (Object.values(TransactionType).includes(type as any)) {
         where.type = type as TransactionType;
       }
+    }
+
+    try {
       const transactions = await prisma.transaction.findMany({
         where,
         include: {
           category: {
             select: {
-              name: true, // ดึงมาเฉพาะชื่อ category
+              name: true,
             },
           },
         },
-        orderBy: [{ date: "desc" }, { amount: "asc" }],
+        orderBy: [{ date: "desc" }, { id: "desc" }],
       });
+
       return { data: transactions };
     } catch (error) {
-      set.status = 500;
+      console.error("Fetch Transactions Error:", error);
+      throw new Error("Failed to fetch transactions");
     }
   },
+
   update: async ({
     params: { id },
     body,
     user,
   }: {
-    params: { id: number };
+    params: { id: string | number }; // ✅ รับได้ทั้ง string และ number
     body: any;
     user: AuthContext["user"];
   }) => {
     try {
-      if (!user) {
+      if (!user || !user.id) {
         throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
       }
-      const updateTx = await prisma.transaction.update({
-        where: { id: Number(id), userId: user.id },
-        data: body,
+
+      // 🔍 ลองหาดูก่อนว่ามีรายการนี้อยู่จริงไหม และเป็นของ User คนนี้ไหม
+      const targetId = Number(id);
+      const existingTx = await prisma.transaction.findFirst({
+        where: { id: targetId, userId: user.id },
       });
+
+      if (!existingTx) {
+        return {
+          status: "error",
+          message: "ไม่พบรายการที่ต้องการแก้ไข หรือคุณไม่มีสิทธิ์ในรายการนี้",
+        };
+      }
+
+      // 🚀 ทำการ Update
+      const updateTx = await prisma.transaction.update({
+        where: { id: targetId },
+        data: {
+          title: body.title,
+          amount: body.amount ? Number(body.amount) : undefined, // ✅ บังคับเป็น Number
+          type: body.type,
+          date: body.date ? new Date(body.date) : undefined,
+          note: body.note,
+          categoryId: body.categoryId ? Number(body.categoryId) : undefined, // ✅ บังคับเป็น Number
+        },
+      });
+
       return { status: "success", data: updateTx };
     } catch (error) {
+      console.error("Update Error:", error); // ดู Error ใน Terminal
       return {
         status: "error",
-        message: "ไม่พบรายการที่ต้องการแก้ไข หรือข้อมูลไม่ถูกต้อง",
+        message: "เกิดข้อผิดพลาดภายในระบบ ไม่สามารถแก้ไขข้อมูลได้",
       };
     }
   },
+
   delete: async ({
     params: { id },
     set,
     user,
   }: {
-    params: { id: Number };
+    params: { id: string | number };
     set: Context["set"];
     user: AuthContext["user"];
   }) => {
+    if (!user || !user.id) throw new AuthenticationError("Unauthorized");
+
     try {
       await prisma.transaction.delete({
         where: { id: Number(id), userId: user.id },
@@ -180,32 +218,31 @@ export const transaction = {
       };
     } catch (error) {
       set.status = 404;
-      return { message: "ไม่พบรายการ หรือคุณไม่มีสิทธิ์" };
+      return { message: "ไม่พบรายการ หรือคุณไม่มีสิทธิ์ลบ" };
     }
   },
+
   getCategory: async ({
-    set,
     user,
   }: {
     set: Context["set"];
     user: AuthContext["user"];
   }) => {
-    if (!user) {
-      throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
+    if (!user || !user.id) throw new AuthenticationError("Unauthorized");
+
+    try {
+      const category = await prisma.category.findMany({
+        where: { userId: user.id },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      });
+      return { status: "success", data: category };
+    } catch (error) {
+      throw new Error("Failed to fetch categories");
     }
-    const category = await prisma.category.findMany({
-      where: {
-        userId: user.id,
-      },
-      orderBy: {
-        name: "asc",
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-      },
-    });
-    return { status: "success", data: category };
   },
 };
