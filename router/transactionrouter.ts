@@ -36,7 +36,14 @@ export const Transactionrouter = new Elysia({
       note: t.Optional(t.String()),
     }),
   })
-  .get("/", transaction.getAll)
+  .get("/", transaction.getAll, {
+    query: t.Object({
+      startDate: t.Optional(t.String()),
+      endDate: t.Optional(t.String()),
+      type: t.Optional(t.Union([t.Literal("INCOME"), t.Literal("EXPENSE")])),
+      categoryId: t.Optional(t.String()),
+    }),
+  })
   .put("/:id", transaction.update, {
     params: t.Object({
       id: t.Numeric(),

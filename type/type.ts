@@ -1,8 +1,9 @@
 import { Context } from "elysia";
 export type getTransaction = {
-  startDate?: string;
+  startDate?: string; //ใส่?เพื่อบอกให้รู้ว่าตัวแปรนี้จะส่งมาหรือไม่ส่งมาก็ได้
   endDate?: string;
   type?: "INCOME" | "EXPENSE";
+  categoryId?: string;
 };
 export type CreateTransactionBody = {
   title: string;

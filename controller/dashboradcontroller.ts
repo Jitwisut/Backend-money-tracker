@@ -12,17 +12,25 @@ export const dashboard = {
     query,
   }: {
     user: AuthContext["user"];
-    query: { startDate?: string; endDate?: string; type: string };
+    query: {
+      startDate?: string;
+      endDate?: string;
+      type?: string;
+      categoryId?: string;
+    }; // ✅ 1. เพิ่ม categoryId ใน Type Definition
   }) => {
     if (!user || !user.id) throw new AuthenticationError("Unauthorized");
+
     dayjs.extend(utc);
     dayjs.extend(timezone);
+
     const userId = Number(user.id);
-    const { startDate, endDate } = query;
-    // บังคับใช้ Timezone ไทย เพื่อให้ start/end ครอบคลุมเวลา 00:00 - 23:59 ของไทยจริงๆ
+    const { startDate, endDate, type, categoryId } = query; // ✅ 2. ดึง categoryId ออกมา
+
+    // --- ส่วนจัดการเรื่องเวลา (เหมือนเดิม) ---
     const start = dayjs.tz(startDate, "Asia/Bangkok").startOf("day").toDate();
     const end = dayjs.tz(endDate, "Asia/Bangkok").endOf("day").toDate();
-    // เตรียมเงื่อนไขเรื่องเวลา (ถ้ามีการส่งมา)
+
     const dateFilter: any = {};
     if (startDate && endDate) {
       end.setHours(23, 59, 59, 999);
@@ -32,49 +40,57 @@ export const dashboard = {
       };
     }
 
+    // --- ✅ 3. สร้างเงื่อนไขการค้นหาหลัก (Base Where Condition) ---
+    // เราจะสร้างตัวแปรนี้ไว้ใช้ร่วมกันทั้ง Dashboard และ PieChart
+    const whereCondition: any = {
+      userId: userId,
+      ...dateFilter,
+    };
+
+    // ถ้ามีการส่ง categoryId มา และไม่ใช่ 'ALL' ให้เพิ่มเงื่อนไขกรองหมวดหมู่
+    if (categoryId && categoryId !== "ALL") {
+      whereCondition.categoryId = Number(categoryId);
+    }
+
     try {
-      // 1. หาผลรวม Income และ Expense (ใช้ aggregate ของ Prisma)
-      // Query นี้จะวิ่งไป Database รอบเดียว ได้ครบทั้ง Income/Expense
+      // --- 1. หาผลรวม Income และ Expense (ใช้ whereCondition ตัวใหม่) ---
       const totals = await prisma.transaction.groupBy({
         by: ["type"],
-        where: {
-          userId: userId,
-          ...dateFilter,
-        },
-
+        where: whereCondition, // ✅ กรองตาม Date และ Category ที่เลือก
         _sum: {
           amount: true,
         },
       });
 
-      // จัด Format ข้อมูลให้ Frontend ใช้ง่ายๆ
+      // จัด Format ข้อมูล Summary Cards
       const income = totals.find((t) => t.type === "INCOME")?._sum.amount || 0;
       const expense =
         totals.find((t) => t.type === "EXPENSE")?._sum.amount || 0;
       const balance = Number(income) - Number(expense);
-      const { type } = query;
-      // 2. หายอดรวมแยกตามหมวดหมู่ (สำหรับทำ Pie Chart รายจ่าย)
+
+      // --- 2. หายอดรวมแยกตามหมวดหมู่ (สำหรับทำ Pie Chart) ---
       const expenseByCategory = await prisma.transaction.groupBy({
-        by: ["categoryId"], // จัดกลุ่มตามชื่อหมวดหมู่
+        by: ["categoryId"],
         where: {
-          userId: userId,
-          type: (type as "INCOME" | "EXPENSE") || "EXPENSE", // เอาเฉพาะรายจ่าย
-          ...dateFilter,
+          ...whereCondition, // ✅ ใช้เงื่อนไขเดิม (User + Date + Category)
+          // ✅ เพิ่มเงื่อนไข Type สำหรับ Pie Chart (Income/Expense)
+          type: (type as "INCOME" | "EXPENSE") || "EXPENSE",
         },
         _sum: {
           amount: true,
         },
         orderBy: {
           _sum: {
-            amount: "desc", // เรียงจากมากไปน้อย
+            amount: "desc",
           },
         },
       });
-      // 1. ดึง ID ของหมวดหมู่ทั้งหมดที่มีรายจ่ายออกมา
+
+      // --- 3. ดึงชื่อหมวดหมู่มาใส่ ---
       const categoryIds = expenseByCategory
         .map((item) => item.categoryId)
         .filter((id): id is number => id !== null);
-      // 2. ไปหาชื่อหมวดหมู่ (Category Name) จาก Database ตาม ID เหล่านั้น
+
       const categories = await prisma.category.findMany({
         where: {
           id: { in: categoryIds },
@@ -82,8 +98,10 @@ export const dashboard = {
         select: {
           id: true,
           name: true,
+          type: true, // แถม type มาด้วยเผื่อใช้
         },
       });
+
       return {
         data: {
           summary: {
@@ -92,17 +110,16 @@ export const dashboard = {
             balance: balance,
           },
           pieChartData: expenseByCategory.map((item) => {
-            // 1. หาข้อมูลหมวดหมู่ก่อน (ประกาศตัวแปรในนี้ได้เพราะมีปีกกาครอบแล้ว)
             const categoryInfo = categories.find(
               (c) => c.id === item.categoryId,
             );
 
-            // 2. ส่งค่ากลับไปเป็น Object
             return {
               category: categoryInfo?.name || "ไม่ระบุหมวดหมู่",
               total: Number(item._sum.amount),
+              color: categoryInfo?.type === "INCOME" ? "#10B981" : "#EF4444", // (Optional) แถมสีให้ ถ้า Frontend อยากใช้
             };
-          }), // อย่าลืมวงเล็บปิดของ map
+          }),
         },
       };
     } catch (error) {

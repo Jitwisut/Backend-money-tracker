@@ -74,7 +74,7 @@ export const transaction = {
     set: Context["set"];
     user: AuthContext["user"];
   }) => {
-    const { startDate, endDate, type } = query;
+    const { startDate, endDate, type, categoryId } = query;
     try {
       if (!user) {
         throw new AuthenticationError("Unauthorized: กรุณาเข้าสู่ระบบ");
@@ -93,6 +93,9 @@ export const transaction = {
           gte: start,
           lte: end,
         };
+      }
+      if (categoryId && categoryId !== "ALL") {
+        where.categoryId = Number(categoryId);
       }
       // เช็คว่ามีค่า type ส่งมาจริงไหม ก่อนจะยัดลง where
       if (
@@ -184,6 +187,7 @@ export const transaction = {
       select: {
         id: true,
         name: true,
+        type: true,
       },
     });
     return { status: "success", data: category };
