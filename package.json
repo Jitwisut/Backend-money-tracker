@@ -1,0 +1,23 @@
+{
+  "name": "backend",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.1",
+    "@elysiajs/jwt": "^1.4.0",
+    "@prisma/client": "5",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dayjs": "^1.11.19",
+    "elysia": "^1.4.23",
+    "prisma": "5"
+  },
+  "devDependencies": {
+    "@prisma/config": "^6.0.0",
+    "bun-types": "latest"
+  },
+  "module": "src/index.js"
+}
