@@ -5,6 +5,7 @@ import { BadRequestError, AuthenticationError } from "../utils/error";
 import { Authrouter } from "../router/Authrouter";
 import jwt from "@elysiajs/jwt";
 import { DashboardRouter } from "../router/Dashboard";
+import { SlipRouter } from "../router/Sliprouter";
 const app = new Elysia()
   .use(cors())
   .onError(({ code, error, set }) => {
@@ -48,6 +49,7 @@ const app = new Elysia()
   .use(Authrouter)
   .use(DashboardRouter)
   .use(Transactionrouter)
+  .use(SlipRouter)
   .get("/", () => "Hello Elysia")
   .listen(3001);
 
